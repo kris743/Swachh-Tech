@@ -1,0 +1,393 @@
+generator client {
+  provider = "prisma-client-js"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                   String                @id @default(uuid())
+  email                String                @unique
+  phone                String?               @unique
+  passwordHash         String
+  firstName            String
+  lastName             String
+  role                 String
+  isActive             Boolean               @default(true)
+  isVerified           Boolean               @default(false)
+  avatar               String?
+  refreshToken         String?
+  lastLoginAt          DateTime?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+
+  citizenProfile       CitizenProfile?
+  workerProfile        WorkerProfile?
+  driverProfile        DriverProfile?
+  greenChampionProfile GreenChampionProfile?
+  recyclerProfile      RecyclerProfile?
+  notifications        Notification[]
+  auditLogs            AuditLog[]
+  complaintsAssignedTo Complaint[]           @relation("AssignedTo")
+  feedbacks            Feedback[]
+}
+
+model CitizenProfile {
+  id                 String              @id @default(uuid())
+  userId             String              @unique
+  address            String
+  ward               String
+  city               String
+  state              String
+  pincode            String
+  householdId        String?
+  rewardPoints       Int                 @default(0)
+  rewardLevel        String              @default("BRONZE")
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  household          Household?          @relation(fields: [householdId], references: [id], onDelete: SetNull)
+  complaints         Complaint[]
+  rewardTransactions RewardTransaction[]
+}
+
+model WorkerProfile {
+  id               String              @id @default(uuid())
+  userId           String              @unique
+  employeeId       String              @unique
+  assignedWard     String
+  shift            String
+  isAvailable      Boolean             @default(true)
+  totalCollections Int                 @default(0)
+  rating           Float               @default(5.0)
+  rewardPoints     Int                 @default(0)
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  user             User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wasteCollections WasteCollection[]
+  attendanceRecords AttendanceRecord[]
+  healthRecords    HealthRecord[]
+}
+
+model DriverProfile {
+  id              String            @id @default(uuid())
+  userId          String            @unique
+  licenseNumber   String            @unique
+  assignedTruckId String?           @unique
+  isAvailable     Boolean           @default(true)
+  totalTrips      Int               @default(0)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignedTruck   Truck?            @relation(fields: [assignedTruckId], references: [id], onDelete: SetNull)
+  routeAssignments RouteAssignment[]
+}
+
+model GreenChampionProfile {
+  id                String      @id @default(uuid())
+  userId            String      @unique
+  assignedArea      String
+  verificationCount Int         @default(0)
+  reportCount       Int         @default(0)
+  rating            Float       @default(5.0)
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  user              User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  verifiedComplaints Complaint[] @relation("VerifiedBy")
+}
+
+model RecyclerProfile {
+  id               String          @id @default(uuid())
+  userId           String          @unique
+  businessName     String
+  businessAddress  String
+  materialsAccepted String
+  totalPickups     Int             @default(0)
+  revenue          Float           @default(0.0)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pickupRequests   PickupRequest[]
+}
+
+model Household {
+  id               String            @id @default(uuid())
+  address          String
+  ward             String
+  city             String
+  state            String
+  pincode          String
+  memberCount      Int               @default(1)
+  latitude         Float?
+  longitude        Float?
+  isActive         Boolean           @default(true)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  qrCode           QRCode?
+  citizens         CitizenProfile[]
+  wasteCollections WasteCollection[]
+}
+
+model QRCode {
+  id            String            @id @default(uuid())
+  householdId   String            @unique
+  code          String            @unique
+  isActive      Boolean           @default(true)
+  lastScannedAt DateTime?
+  totalScans    Int               @default(0)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  household     Household         @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  wasteCollections WasteCollection[]
+}
+
+model Truck {
+  id                 String            @id @default(uuid())
+  registrationNumber String            @unique
+  capacity           Float
+  currentLoad        Float             @default(0)
+  status             String
+  currentLatitude    Float?
+  currentLongitude   Float?
+  fuelLevel          Float             @default(100)
+  lastMaintenanceAt  DateTime?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  driver             DriverProfile?
+  routes             RouteAssignment[]
+}
+
+model Route {
+  id                String            @id @default(uuid())
+  name              String
+  ward              String
+  description       String?
+  waypoints         String            
+  estimatedDuration Int               
+  distance          Float             
+  isActive          Boolean           @default(true)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  assignments       RouteAssignment[]
+}
+
+model RouteAssignment {
+  id               String      @id @default(uuid())
+  routeId          String
+  driverId         String
+  truckId          String
+  date             DateTime
+  status           String
+  startedAt        DateTime?
+  completedAt      DateTime?
+  actualDuration   Int?
+  fuelUsed         Float?
+  collectionsCount Int         @default(0)
+  notes            String?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  route            Route         @relation(fields: [routeId], references: [id])
+  driver           DriverProfile @relation(fields: [driverId], references: [id])
+  truck            Truck         @relation(fields: [truckId], references: [id])
+}
+
+model WasteCollection {
+  id          String           @id @default(uuid())
+  householdId String
+  workerId    String
+  qrCodeId    String
+  wasteType   String
+  weight      Float?
+  status      String
+  collectedAt DateTime
+  gpsLatitude Float
+  gpsLongitude Float
+  notes       String?
+  imageUrl    String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  household   Household     @relation(fields: [householdId], references: [id])
+  worker      WorkerProfile @relation(fields: [workerId], references: [id])
+  qrCode      QRCode        @relation(fields: [qrCodeId], references: [id])
+}
+
+model Complaint {
+  id               String               @id @default(uuid())
+  citizenId        String
+  type             String
+  description      String
+  status           String
+  gpsLatitude      Float
+  gpsLongitude     Float
+  address          String?
+  assignedToId     String?
+  verifiedById     String?
+  aiClassification String?
+  aiConfidence     Float?
+  resolvedAt       DateTime?
+  resolutionNotes  String?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  citizen          CitizenProfile       @relation(fields: [citizenId], references: [id])
+  assignedTo       User?                @relation("AssignedTo", fields: [assignedToId], references: [id])
+  verifiedBy       GreenChampionProfile? @relation("VerifiedBy", fields: [verifiedById], references: [id])
+  media            ComplaintMedia[]
+}
+
+model ComplaintMedia {
+  id          String    @id @default(uuid())
+  complaintId String
+  url         String
+  type        String
+  createdAt   DateTime  @default(now())
+
+  complaint   Complaint @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+}
+
+model RewardTransaction {
+  id          String         @id @default(uuid())
+  citizenId   String
+  action      String
+  points      Int
+  description String
+  createdAt   DateTime       @default(now())
+
+  citizen     CitizenProfile @relation(fields: [citizenId], references: [id], onDelete: Cascade)
+}
+
+model TrainingModule {
+  id          String   @id @default(uuid())
+  title       String
+  description String
+  content     String
+  role        String
+  isRequired  Boolean
+  duration    Int      
+  imageUrl    String?
+  order       Int
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model TrainingProgress {
+  id          String    @id @default(uuid())
+  userId      String
+  moduleId    String
+  completed   Boolean
+  completedAt DateTime?
+  score       Float?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([userId, moduleId])
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  title     String
+  body      String
+  type      String
+  isRead    Boolean          @default(false)
+  data      String?          
+  createdAt DateTime         @default(now())
+
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  action    String
+  entity    String
+  entityId  String?
+  metadata  String?  
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+model AttendanceRecord {
+  id               String        @id @default(uuid())
+  workerId         String
+  date             DateTime
+  checkInAt        DateTime
+  checkOutAt       DateTime?
+  checkInLatitude  Float
+  checkInLongitude Float
+  status           String
+  createdAt        DateTime      @default(now())
+
+  worker           WorkerProfile @relation(fields: [workerId], references: [id])
+}
+
+model PickupRequest {
+  id          String          @id @default(uuid())
+  recyclerId  String
+  householdId String?
+  materials   String
+  status      String
+  scheduledAt DateTime?
+  completedAt DateTime?
+  weight      Float?
+  revenue     Float?
+  notes       String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  recycler    RecyclerProfile @relation(fields: [recyclerId], references: [id])
+}
+
+model AnalyticsSnapshot {
+  id                 String   @id @default(uuid())
+  ward               String
+  date               DateTime
+  wasteCollected     Float
+  complaintsReceived Int
+  complaintsResolved Int
+  recyclingRate      Float
+  activeCitizens     Int
+  activeWorkers      Int
+  trucksUtilized     Int
+  createdAt          DateTime @default(now())
+}
+
+model Feedback {
+  id        String   @id @default(uuid())
+  userId    String
+  message   String
+  rating    Int
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model HealthRecord {
+  id          String        @id @default(uuid())
+  workerId    String
+  date        DateTime
+  doctorName  String
+  notes       String
+  status      String        
+  createdAt   DateTime      @default(now())
+
+  worker      WorkerProfile @relation(fields: [workerId], references: [id], onDelete: Cascade)
+}
