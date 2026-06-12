@@ -56,7 +56,7 @@ export class WorkersService {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const [collectionsToday, attendanceToday] = await Promise.all([
+    const [collectionsToday, attendanceToday, complaintsToday, pickupsToday, householdsToday] = await Promise.all([
       this.prisma.wasteCollection.count({
         where: {
           workerId: profile.id,
@@ -68,8 +68,60 @@ export class WorkersService {
           workerId: profile.id,
           date: today
         }
+      }),
+      this.prisma.complaint.findMany({
+        where: {
+          status: 'PENDING',
+          citizen: {
+            ward: profile.assignedWard
+          }
+        },
+        include: { citizen: true },
+        take: 10
+      }),
+      this.prisma.pickupRequest.findMany({
+        where: {
+          status: 'PENDING',
+          // Assuming pickup requests don't directly have ward, we could fetch by household ward or just return all for now.
+          // Wait, pickup request doesn't have a ward field directly, let's fetch by joining Household.
+        },
+        include: { recycler: true },
+        take: 5
+      }),
+      this.prisma.household.findMany({
+        where: {
+          ward: profile.assignedWard,
+          isActive: true
+        },
+        take: 50 // Limit to first 50 houses for the simulated route
       })
     ]);
+
+    // Format Alerts
+    const liveAlerts = [
+      ...complaintsToday.map(c => ({
+        id: c.id,
+        type: c.type,
+        location: c.address || `${profile.assignedWard} Area`,
+        time: c.createdAt.toISOString(),
+        urgent: true
+      })),
+      ...pickupsToday.map(p => ({
+        id: p.id,
+        type: 'PICKUP_REQUEST',
+        location: p.recycler ? p.recycler.businessName : 'Special Pickup',
+        time: p.createdAt.toISOString(),
+        urgent: true
+      }))
+    ];
+
+    // Format Route
+    const routeAssignments = householdsToday.map((h, i) => ({
+      id: h.id,
+      area: h.address,
+      time: 'Pending', // Simplified for simulation
+      status: 'pending'
+    }));
 
     return {
       stats: {
@@ -78,7 +130,10 @@ export class WorkersService {
         rating: profile.rating,
         isCheckedIn: !!attendanceToday && !attendanceToday.checkOutAt,
         shift: profile.shift,
-      }
+        assignedWard: profile.assignedWard,
+      },
+      liveAlerts,
+      routeAssignments
     };
   }
 

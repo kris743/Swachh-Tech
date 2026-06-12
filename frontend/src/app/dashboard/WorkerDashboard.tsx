@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { ScanLine, LogOut, Loader2, CheckCircle2, MapPin, Clock, Bell, AlertTriangle, Truck, Navigation, Activity, BookOpen, HeartPulse, UserCircle } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
@@ -13,7 +13,42 @@ export default function WorkerDashboard() {
   const [isScanning, setIsScanning] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [activeTab, setActiveTab] = useState<'route' | 'scan' | 'alerts' | 'performance' | 'training' | 'health'>('route');
-  const [isCheckedIn, setIsCheckedIn] = useState(false);
+  
+  // Dashboard Data
+  const [dashboardData, setDashboardData] = useState<any>(null);
+  const [isLoadingData, setIsLoadingData] = useState(true);
+
+  useEffect(() => {
+    const fetchDashboard = async () => {
+      try {
+        const res = await api.get('/workers/my-dashboard');
+        setDashboardData(res.data?.data || res.data);
+      } catch (err) {
+        console.error('Failed to load dashboard', err);
+      } finally {
+        setIsLoadingData(false);
+      }
+    };
+    fetchDashboard();
+  }, []);
+
+  const isCheckedIn = dashboardData?.stats?.isCheckedIn || false;
+
+  // Scanner Logic
+  useEffect(() => {
+    let scanner: any = null;
+    if (activeTab === 'scan') {
+      const { Html5QrcodeScanner } = require('html5-qrcode');
+      scanner = new Html5QrcodeScanner('reader', { fps: 10, qrbox: {width: 250, height: 250} }, false);
+      scanner.render((decodedText: string) => {
+        setScannedCode(decodedText);
+        scanner.clear();
+      }, () => {});
+    }
+    return () => {
+      if (scanner) scanner.clear().catch(console.error);
+    };
+  }, [activeTab]);
 
   const handleScan = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,20 +67,25 @@ export default function WorkerDashboard() {
     }
   };
 
-  const handleAttendance = () => {
-    setIsCheckedIn(!isCheckedIn);
-    toast.success(isCheckedIn ? 'Successfully Checked Out for the day.' : 'Successfully Checked In. Have a safe shift!');
+  const handleAttendance = async () => {
+    try {
+      if (isCheckedIn) {
+        await api.post('/workers/attendance/check-out');
+        toast.success('Successfully Checked Out for the day.');
+      } else {
+        await api.post('/workers/attendance/check-in', { latitude: 28.6139, longitude: 77.2090 });
+        toast.success('Successfully Checked In. Have a safe shift!');
+      }
+      // Refresh
+      const res = await api.get('/workers/my-dashboard');
+      setDashboardData(res.data?.data || res.data);
+    } catch (err) {
+      toast.error('Could not update attendance.');
+    }
   };
 
-  // Mock data
-  const routeAssignments = [
-    { id: 1, area: "Connaught Place, Block A", time: "08:00 AM", status: "completed" },
-    { id: 2, area: "Connaught Place, Block B", time: "09:30 AM", status: "in-progress" },
-  ];
-  const liveAlerts = [
-    { id: 101, type: "OVERFLOW", location: "Bin #402, CP Block B", time: "10 mins ago", urgent: true },
-    { id: 102, type: "ANNOUNCEMENT", location: "Safety Guidelines Updated", time: "1 hr ago", urgent: false },
-  ];
+  const routeAssignments = dashboardData?.routeAssignments || [];
+  const liveAlerts = dashboardData?.liveAlerts || [];
   const mockTraining = [
     { id: 1, title: "Hazardous Waste Handling", duration: "15 mins", completed: true },
     { id: 2, title: "Heatwave Safety Protocol", duration: "10 mins", completed: false },
@@ -114,7 +154,7 @@ export default function WorkerDashboard() {
 
           {activeTab === 'route' && (
             <div className="space-y-4">
-              {routeAssignments.map((stop, i) => (
+              {routeAssignments.map((stop: any, i: number) => (
                 <div key={stop.id} className={`p-4 rounded-xl border ${stop.status === 'in-progress' ? 'bg-orange-500/10 border-orange-500/30' : 'bg-slate-800 border-slate-700'} flex items-center justify-between`}>
                   <div className="flex items-center gap-4">
                     <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center">{i + 1}</div>
@@ -131,10 +171,11 @@ export default function WorkerDashboard() {
           {activeTab === 'scan' && (
             <div className="bg-slate-800/50 rounded-2xl p-8 text-center border border-slate-700">
               <ScanLine className="w-16 h-16 text-orange-500 mx-auto mb-4" />
+              <div id="reader" className="w-full max-w-sm mx-auto overflow-hidden rounded-xl border border-orange-500/50 mb-4 bg-black"></div>
               <form onSubmit={handleScan} className="max-w-xs mx-auto space-y-4">
-                <input value={scannedCode} onChange={(e) => setScannedCode(e.target.value)} placeholder="QR Code..." className="w-full p-4 rounded-xl bg-slate-900 border border-slate-700 focus:border-orange-500 outline-none uppercase" />
-                <button type="submit" disabled={isScanning || !isCheckedIn} className="w-full py-3 bg-orange-500 text-white font-bold rounded-xl disabled:opacity-50">
-                  {isScanning ? 'Processing...' : 'Record'}
+                <input value={scannedCode} onChange={(e) => setScannedCode(e.target.value)} placeholder="Scanned QR Code..." className="w-full p-4 rounded-xl bg-slate-900 border border-slate-700 focus:border-orange-500 outline-none uppercase text-center" />
+                <button type="submit" disabled={isScanning || !isCheckedIn || !scannedCode} className="w-full py-3 bg-orange-500 text-white font-bold rounded-xl disabled:opacity-50">
+                  {isScanning ? 'Processing...' : 'Record Collection'}
                 </button>
               </form>
             </div>
@@ -142,7 +183,7 @@ export default function WorkerDashboard() {
 
           {activeTab === 'alerts' && (
             <div className="space-y-4">
-              {liveAlerts.map(alert => (
+              {liveAlerts.map((alert: any) => (
                 <div key={alert.id} className={`p-5 rounded-xl border ${alert.urgent ? 'bg-red-500/10 border-red-500/30' : 'bg-blue-500/10 border-blue-500/30'}`}>
                   <p className={`text-xs font-bold mb-1 ${alert.urgent ? 'text-red-500' : 'text-blue-500'}`}>{alert.type}</p>
                   <h3 className="font-bold text-lg">{alert.location}</h3>
@@ -152,27 +193,27 @@ export default function WorkerDashboard() {
             </div>
           )}
 
-          {activeTab === 'performance' && (
+          {activeTab === 'performance' && dashboardData && (
             <div className="grid grid-cols-2 gap-4">
               <div className="bg-slate-800/50 p-6 rounded-2xl border border-slate-700 text-center">
                 <p className="text-slate-400 font-bold mb-2">Total Collections</p>
-                <p className="text-4xl font-black text-orange-500">1,204</p>
+                <p className="text-4xl font-black text-orange-500">{dashboardData.stats?.totalCollections}</p>
               </div>
               <div className="bg-slate-800/50 p-6 rounded-2xl border border-slate-700 text-center">
                 <p className="text-slate-400 font-bold mb-2">Average Rating</p>
-                <p className="text-4xl font-black text-yellow-500">4.8 <span className="text-lg">★</span></p>
+                <p className="text-4xl font-black text-yellow-500">{dashboardData.stats?.rating} <span className="text-lg">★</span></p>
               </div>
               <div className="col-span-2 bg-slate-800/50 p-6 rounded-2xl border border-slate-700 text-center">
-                <p className="text-slate-400 font-bold mb-2">Reward Points</p>
-                <p className="text-5xl font-black text-emerald-500">450</p>
-                <p className="text-sm text-slate-500 mt-2">Earned through zero-complaint weeks and high ratings.</p>
+                <p className="text-slate-400 font-bold mb-2">Today's Collections</p>
+                <p className="text-5xl font-black text-emerald-500">{dashboardData.stats?.collectionsToday}</p>
+                <p className="text-sm text-slate-500 mt-2">Assigned Ward: {dashboardData.stats?.assignedWard}</p>
               </div>
             </div>
           )}
 
           {activeTab === 'training' && (
             <div className="space-y-4">
-              {mockTraining.map(mod => (
+              {mockTraining.map((mod: any) => (
                 <div key={mod.id} className="bg-slate-800/50 p-5 rounded-xl border border-slate-700 flex justify-between items-center">
                   <div>
                     <h3 className="font-bold">{mod.title}</h3>
@@ -193,7 +234,7 @@ export default function WorkerDashboard() {
                 <h3 className="font-bold text-emerald-500 text-lg">Current Status: FIT FOR DUTY</h3>
                 <p className="text-sm text-emerald-500/80 mt-1">Last checkup was 4 months ago. Next checkup due in 2 months.</p>
               </div>
-              {healthRecords.map(record => (
+              {healthRecords.map((record: any) => (
                 <div key={record.id} className="bg-slate-800/50 p-5 rounded-xl border border-slate-700">
                   <div className="flex justify-between mb-2">
                     <p className="font-bold">{record.date}</p>

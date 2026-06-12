@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, ConflictException } from '@nestjs/common
 import { PrismaService } from '../../prisma/prisma.service';
 import { UpdateUserDto } from './dto/update-user.dto';
 import * as bcrypt from 'bcrypt';
+import { randomUUID } from 'crypto';
 
 @Injectable()
 export class UsersService {
@@ -102,10 +103,57 @@ export class UsersService {
 
     // Soft delete
     await this.prisma.user.update({
-      where: { id },
+      where: { id: id },
       data: { isActive: false },
     });
 
     return { deleted: true };
+  }
+
+  async assignRole(emailOrId: string, role: string) {
+    const isEmail = emailOrId.includes('@');
+    let user = null;
+
+    if (isEmail) {
+      user = await this.prisma.user.findUnique({
+        where: { email: emailOrId.trim().toLowerCase() },
+      });
+    } else {
+      user = await this.prisma.user.findUnique({
+        where: { id: emailOrId.trim() },
+      });
+    }
+
+    if (user) {
+      // Update role for existing user
+      const updatedUser = await this.prisma.user.update({
+        where: { id: user.id },
+        data: { role },
+      });
+      const { passwordHash, refreshToken, ...result } = updatedUser;
+      return result;
+    } else {
+      if (isEmail) {
+        // Pre-create the user record with placeholders
+        const newUser = await this.prisma.user.create({
+          data: {
+            id: randomUUID(),
+            email: emailOrId.trim().toLowerCase(),
+            firstName: 'Pre-assigned',
+            lastName: 'User',
+            passwordHash: '',
+            role,
+            isActive: true,
+            isVerified: true,
+          },
+        });
+        const { passwordHash, refreshToken, ...result } = newUser;
+        return result;
+      } else {
+        throw new NotFoundException(
+          `User with ID ${emailOrId} not found in database. To pre-assign roles, please use their Email address.`,
+        );
+      }
+    }
   }
 }

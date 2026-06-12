@@ -43,6 +43,13 @@ export class ComplaintsController {
     );
   }
 
+  @Roles(UserRole.CITIZEN)
+  @Get('my')
+  @ApiOperation({ summary: 'Get complaints for the logged-in citizen' })
+  findMyComplaints(@CurrentUser() user: JwtPayload) {
+    return this.complaintsService.findMyComplaints(user.sub);
+  }
+
   @Get('stats')
   @ApiOperation({ summary: 'Get complaint statistics' })
   getStats() {

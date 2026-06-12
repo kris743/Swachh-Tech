@@ -47,23 +47,67 @@ export class JwtAuthGuard {
     // Lazy sync to Prisma
     let dbUser = await this.prisma.user.findUnique({
       where: { id: user.id },
+      include: {
+        citizenProfile: true,
+        workerProfile: true,
+        driverProfile: true,
+        recyclerProfile: true,
+        greenChampionProfile: true,
+      }
     });
 
     if (!dbUser && user.email) {
-      dbUser = await this.prisma.user.create({
-        data: {
-          id: user.id,
-          email: user.email,
-          passwordHash: '',
-          firstName: user.user_metadata?.first_name || 'New',
-          lastName: user.user_metadata?.last_name || 'User',
-          role: user.user_metadata?.role || 'CITIZEN',
-          isActive: true,
-          isVerified: true,
-        },
+      // Check if user was pre-created by the owner/admin
+      const existingUserByEmail = await this.prisma.user.findUnique({
+        where: { email: user.email },
       });
 
-      if (dbUser.role === 'CITIZEN') {
+      if (existingUserByEmail) {
+        // Link the pre-created record to the actual Supabase UID
+        dbUser = await this.prisma.user.update({
+          where: { email: user.email },
+          data: {
+            id: user.id,
+            firstName: user.user_metadata?.first_name || existingUserByEmail.firstName || 'New',
+            lastName: user.user_metadata?.last_name || existingUserByEmail.lastName || 'User',
+          },
+          include: {
+            citizenProfile: true,
+            workerProfile: true,
+            driverProfile: true,
+            recyclerProfile: true,
+            greenChampionProfile: true,
+          }
+        });
+      } else {
+        dbUser = await this.prisma.user.create({
+          data: {
+            id: user.id,
+            email: user.email,
+            passwordHash: '',
+            firstName: user.user_metadata?.first_name || 'New',
+            lastName: user.user_metadata?.last_name || 'User',
+            role: 'CITIZEN', // Always default new signups to CITIZEN for admin-controlled roles
+            isActive: true,
+            isVerified: true,
+          },
+          include: {
+            citizenProfile: true,
+            workerProfile: true,
+            driverProfile: true,
+            recyclerProfile: true,
+            greenChampionProfile: true,
+          }
+        });
+      }
+    } else if (!dbUser || !dbUser.isActive) {
+      throw new UnauthorizedException('User is inactive or not found');
+    }
+
+    // Now verify the profile exists based on user role, and lazily create it if it doesn't exist
+    if (dbUser) {
+      const role = dbUser.role;
+      if (role === 'CITIZEN' && !dbUser.citizenProfile) {
         const household = await this.prisma.household.create({
           data: {
             address: 'Demo Address',
@@ -83,16 +127,57 @@ export class JwtAuthGuard {
           data: {
             userId: dbUser.id,
             householdId: household.id,
-            address: '',
-            ward: '',
-            city: '',
-            state: '',
-            pincode: '',
+            address: 'Demo Address',
+            ward: 'WARD-1',
+            city: 'Demo City',
+            state: 'Demo State',
+            pincode: '000000',
           },
         });
+      } else if (role === 'WORKER' && !dbUser.workerProfile) {
+        await this.prisma.workerProfile.create({
+          data: {
+            userId: dbUser.id,
+            employeeId: `EMP-${dbUser.id.substring(0, 8).toUpperCase()}`,
+            assignedWard: 'WARD-1',
+            shift: 'MORNING',
+            isAvailable: true,
+            totalCollections: 0,
+            rating: 5.0,
+            rewardPoints: 0,
+          }
+        });
+      } else if (role === 'DRIVER' && !dbUser.driverProfile) {
+        await this.prisma.driverProfile.create({
+          data: {
+            userId: dbUser.id,
+            licenseNumber: `LIC-${dbUser.id.substring(0, 8).toUpperCase()}`,
+            isAvailable: true,
+            totalTrips: 0,
+          }
+        });
+      } else if (role === 'GREEN_CHAMPION' && !dbUser.greenChampionProfile) {
+        await this.prisma.greenChampionProfile.create({
+          data: {
+            userId: dbUser.id,
+            assignedArea: 'WARD-1',
+            verificationCount: 0,
+            reportCount: 0,
+            rating: 5.0,
+          }
+        });
+      } else if (role === 'RECYCLER' && !dbUser.recyclerProfile) {
+        await this.prisma.recyclerProfile.create({
+          data: {
+            userId: dbUser.id,
+            businessName: `${dbUser.firstName}'s Recycling`,
+            businessAddress: 'Demo Address',
+            materialsAccepted: 'PLASTIC, PAPER, METAL',
+            totalPickups: 0,
+            revenue: 0.0,
+          }
+        });
       }
-    } else if (!dbUser || !dbUser.isActive) {
-      throw new UnauthorizedException('User is inactive or not found');
     }
 
     request.user = { sub: dbUser.id, email: dbUser.email, role: dbUser.role };

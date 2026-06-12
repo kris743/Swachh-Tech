@@ -14,7 +14,23 @@ export default function ReportComplaintModal({ isOpen, onClose, onReportSuccess 
   const [type, setType] = useState('GARBAGE_DUMP');
   const [description, setDescription] = useState('');
   const [location, setLocation] = useState<[number, number] | null>(null);
+  const [imageBase64, setImageBase64] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 8 * 1024 * 1024) {
+        toast.error('Image size must be less than 8MB');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImageBase64(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,12 +44,13 @@ export default function ReportComplaintModal({ isOpen, onClose, onReportSuccess 
       // Typically you'd pass the auth token here
       const token = localStorage.getItem('token');
       
-      await axios.post('http://localhost:4000/complaints', {
+      await axios.post('http://localhost:4000/api/complaints', {
         type,
         description,
         gpsLatitude: location[0],
         gpsLongitude: location[1],
         address: "Selected from Map",
+        imageUrl: imageBase64 || undefined,
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -91,6 +108,35 @@ export default function ReportComplaintModal({ isOpen, onClose, onReportSuccess 
                     <option value="ILLEGAL_DUMPING">Illegal Dumping</option>
                     <option value="MISSED_COLLECTION">Missed Collection</option>
                   </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium mb-2">Upload Photo (Optional)</label>
+                  <div className="flex items-center gap-4">
+                    <label className="cursor-pointer flex items-center justify-center gap-2 bg-muted/50 border border-border hover:border-primary transition-colors rounded-lg px-4 py-3 text-sm font-medium w-full sm:w-auto">
+                      <Camera className="w-4 h-4" />
+                      Take Photo or Upload
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        capture="environment" 
+                        className="hidden" 
+                        onChange={handleFileChange} 
+                      />
+                    </label>
+                    {imageBase64 && (
+                      <div className="relative w-12 h-12 rounded-md overflow-hidden border border-primary/50 shrink-0">
+                        <img src={imageBase64} alt="Preview" className="w-full h-full object-cover" />
+                        <button 
+                          type="button" 
+                          onClick={() => setImageBase64(null)}
+                          className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 scale-75"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 
                 <div>

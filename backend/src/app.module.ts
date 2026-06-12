@@ -11,7 +11,8 @@ import { QrCodesModule } from './modules/qr-codes/qr-codes.module';
 import { CollectionsModule } from './modules/collections/collections.module';
 import { ComplaintsModule } from './modules/complaints/complaints.module';
 import { RewardsModule } from './modules/rewards/rewards.module';
-// Import feature modules here later as we create them
+import { AnalyticsModule } from './modules/analytics/analytics.module';
+import { FeedbackModule } from './modules/feedback/feedback.module';
 
 @Module({
   imports: [
@@ -40,6 +41,8 @@ import { RewardsModule } from './modules/rewards/rewards.module';
     CollectionsModule,
     ComplaintsModule,
     RewardsModule,
+    AnalyticsModule,
+    FeedbackModule,
   ],
   controllers: [],
   providers: [],

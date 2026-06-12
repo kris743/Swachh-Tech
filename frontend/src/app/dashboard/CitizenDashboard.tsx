@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, Variants } from 'framer-motion';
 import { Camera, MapPin, Trophy, Leaf, Trash2, Bell, LogOut, ChevronRight, QrCode, Truck, BookOpen, MessageSquare, AlertCircle, Award, History, Map as MapIcon, CheckCircle2 } from 'lucide-react';
 import Link from 'next/link';
@@ -8,17 +8,72 @@ import ReportComplaintModal from '@/components/ReportComplaintModal';
 import QRCodeModal from '@/components/QRCodeModal';
 import { useAuth } from '@/context/AuthContext';
 import { toast } from 'sonner';
+import { api } from '@/lib/api';
+import dayjs from 'dayjs';
+import dynamic from 'next/dynamic';
+
+const TruckMap = dynamic(() => import('@/components/TruckMap'), { ssr: false });
 
 export default function CitizenDashboard() {
+
   const { user, logout, refreshUser } = useAuth();
   const [activeTab, setActiveTab] = useState<'overview' | 'tracking' | 'training' | 'complaints' | 'feedback' | 'incentives'>('overview');
   const [language, setLanguage] = useState<'EN' | 'HI'>('EN');
   
-  const points = user?.citizenProfile?.rewardPoints || 0;
+
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [isQRModalOpen, setIsQRModalOpen] = useState(false);
 
-  const handleReportSuccess = () => refreshUser();
+  // Dropdown States
+  const [isNotifOpen, setIsNotifOpen] = useState(false);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+
+  // Live Data States
+  const [dashboardStats, setDashboardStats] = useState<any>(null);
+  const [myComplaints, setMyComplaints] = useState<any[]>([]);
+  const [ledger, setLedger] = useState<any[]>([]);
+  const [leaderboard, setLeaderboard] = useState<any[]>([]);
+  const [isLoadingData, setIsLoadingData] = useState(false);
+
+  const points = dashboardStats?.rewardPoints ?? (user?.citizenProfile?.rewardPoints || 0);
+  const level = dashboardStats?.rewardLevel ?? (user?.citizenProfile?.rewardLevel || 'BRONZE');
+
+  const handleReportSuccess = () => {
+    refreshUser();
+    if (activeTab === 'complaints') {
+      // Re-fetch complaints
+      api.get('/complaints/my').then(res => setMyComplaints(res.data?.data || res.data || []));
+    }
+  };
+
+  useEffect(() => {
+    const fetchData = async () => {
+      setIsLoadingData(true);
+      try {
+        if (activeTab === 'overview') {
+          const [statsRes, lbRes] = await Promise.all([
+            api.get('/citizens/dashboard'),
+            api.get('/rewards/leaderboard')
+          ]);
+          setDashboardStats(statsRes.data?.data?.stats || statsRes.data?.stats);
+          setLeaderboard(lbRes.data?.data || lbRes.data || []);
+        } else if (activeTab === 'complaints') {
+          const res = await api.get('/complaints/my');
+          setMyComplaints(res.data?.data || res.data || []);
+        } else if (activeTab === 'incentives') {
+          const res = await api.get('/rewards/transactions');
+          // Pagination structure
+          setLedger(res.data?.data?.data || res.data?.data || []);
+        }
+      } catch (error) {
+        console.error('Error fetching dashboard data:', error);
+      } finally {
+        setIsLoadingData(false);
+      }
+    };
+    
+    fetchData();
+  }, [activeTab]);
 
   const containerVars: Variants = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.1 } } };
   const itemVars: Variants = { hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } } };
@@ -41,17 +96,8 @@ export default function CitizenDashboard() {
     }
   }[language];
 
-  // Mock data for new tabs
-  const mockComplaints = [
-    { id: 'CMP-1029', type: 'Illegal Dumping', status: 'Resolved', date: '2023-10-12', resolvedAt: '2023-10-14' },
-    { id: 'CMP-1045', type: 'Missed Pickup', status: 'In Progress', date: '2023-10-15', resolvedAt: null },
-  ];
+  // Removed static mockComplaints and mockLedger
 
-  const mockLedger = [
-    { id: 1, action: 'Daily Waste Collection', points: '+10', date: 'Today, 8:30 AM', type: 'reward' },
-    { id: 2, action: 'Overflowing Bin Reported', points: '+25', date: 'Yesterday', type: 'reward' },
-    { id: 3, action: 'Mixed Waste Penalty', points: '-5', date: 'Oct 10, 2023', type: 'fine' },
-  ];
 
   const mockTraining = [
     { id: 1, title: 'How to Segregate Dry and Wet Waste', duration: '5 mins', completed: true },
@@ -121,13 +167,63 @@ export default function CitizenDashboard() {
         {/* Topbar */}
         <header className="h-16 border-b border-border glass flex items-center justify-between px-6 lg:px-10 shrink-0">
           <h1 className="text-xl font-bold">{t[activeTab]}</h1>
-          <div className="flex items-center gap-4">
-            <button className="relative p-2 rounded-full hover:bg-muted/50 transition-colors">
-              <Bell className="w-5 h-5 text-muted-foreground" />
-            </button>
-            <div className="h-8 w-8 rounded-full bg-gradient-to-tr from-primary to-emerald-400 flex items-center justify-center text-black font-bold shadow-lg shadow-primary/20">
-              {user?.firstName?.charAt(0) || 'C'}
+          <div className="flex items-center gap-4 relative">
+            
+            {/* Notification Bell */}
+            <div className="relative">
+              <button 
+                onClick={() => setIsNotifOpen(!isNotifOpen)}
+                className="relative p-2 rounded-full hover:bg-muted/50 transition-colors"
+              >
+                <Bell className="w-5 h-5 text-muted-foreground" />
+                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full"></span>
+              </button>
+              
+              {isNotifOpen && (
+                <div className="absolute right-0 mt-2 w-72 bg-background border border-border shadow-2xl rounded-xl overflow-hidden z-50">
+                  <div className="p-3 border-b border-border font-bold">Notifications</div>
+                  <div className="max-h-64 overflow-y-auto">
+                    <div className="p-3 border-b border-border hover:bg-muted/30 cursor-pointer">
+                      <p className="text-sm font-semibold">Truck arriving soon!</p>
+                      <p className="text-xs text-muted-foreground">Truck MH-04-1234 is 15 mins away.</p>
+                    </div>
+                    <div className="p-3 border-b border-border hover:bg-muted/30 cursor-pointer">
+                      <p className="text-sm font-semibold text-emerald-500">+25 Points Earned</p>
+                      <p className="text-xs text-muted-foreground">For your resolved complaint.</p>
+                    </div>
+                  </div>
+                  <div className="p-2 text-center text-xs text-primary font-bold cursor-pointer hover:bg-muted/30">View All</div>
+                </div>
+              )}
             </div>
+
+            {/* Profile Avatar */}
+            <div className="relative">
+              <button 
+                onClick={() => setIsProfileOpen(!isProfileOpen)}
+                className="h-8 w-8 rounded-full bg-gradient-to-tr from-primary to-emerald-400 flex items-center justify-center text-black font-bold shadow-lg shadow-primary/20 hover:scale-105 transition-transform"
+              >
+                {user?.firstName?.charAt(0) || 'C'}
+              </button>
+
+              {isProfileOpen && (
+                <div className="absolute right-0 mt-2 w-48 bg-background border border-border shadow-2xl rounded-xl overflow-hidden z-50">
+                  <div className="p-3 border-b border-border">
+                    <p className="font-bold text-sm truncate">{user?.firstName} {user?.lastName}</p>
+                    <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
+                  </div>
+                  <div className="p-1">
+                    <button className="w-full text-left px-3 py-2 text-sm hover:bg-muted/50 rounded-md transition-colors flex items-center">
+                      Account Settings
+                    </button>
+                    <button className="w-full text-left px-3 py-2 text-sm hover:bg-muted/50 rounded-md transition-colors flex items-center text-red-500" onClick={logout}>
+                      Log Out
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
           </div>
         </header>
 
@@ -143,7 +239,13 @@ export default function CitizenDashboard() {
                   <div className="relative z-10 flex flex-col md:flex-row justify-between items-center gap-6">
                     <div>
                       <h2 className="text-3xl font-bold mb-2">{t.welcome}</h2>
-                      <p className="text-muted-foreground max-w-lg">{t.subtitle}</p>
+                      <p className="text-muted-foreground max-w-lg">
+                        {leaderboard.length > 0 ? (
+                          leaderboard[0].id === user?.citizenProfile?.id ? 
+                          "Incredible! You are the #1 citizen in the city for waste segregation." :
+                          "Keep it up! You're making the city greener every day."
+                        ) : t.subtitle}
+                      </p>
                     </div>
                     <div className="flex items-center gap-6 glass-panel px-6 py-4 rounded-xl border border-border">
                       <div className="relative w-20 h-20 flex items-center justify-center">
@@ -154,7 +256,7 @@ export default function CitizenDashboard() {
                         <div className="absolute text-xl font-bold">Lv.4</div>
                       </div>
                       <div>
-                        <div className="text-sm font-semibold text-emerald-400 uppercase tracking-wider mb-1">Platinum Tier</div>
+                        <div className="text-sm font-semibold text-emerald-400 uppercase tracking-wider mb-1">{level} Tier</div>
                         <div className="text-3xl font-extrabold">{points} <span className="text-sm font-normal text-muted-foreground">pts</span></div>
                       </div>
                     </div>
@@ -193,10 +295,8 @@ export default function CitizenDashboard() {
                 <div className="glass rounded-2xl border border-border p-6 shadow-sm">
                   <h3 className="text-xl font-bold flex items-center mb-4"><MapIcon className="w-6 h-6 text-primary mr-2" /> Live Collection Truck</h3>
                   <p className="text-muted-foreground mb-6">Track the garbage collection truck assigned to your ward in real-time.</p>
-                  <div className="w-full h-96 bg-muted/50 rounded-xl border border-border flex items-center justify-center flex-col">
-                    <MapIcon className="w-12 h-12 text-muted-foreground/50 mb-3" />
-                    <p className="font-bold text-muted-foreground">Interactive Map Integration</p>
-                    <p className="text-sm text-muted-foreground/70">Connecting to existing Leaflet/Google Maps instance...</p>
+                  <div className="w-full h-[400px] bg-muted/50 rounded-xl border border-border flex items-center justify-center overflow-hidden relative">
+                    <TruckMap />
                   </div>
                   <div className="mt-4 p-4 rounded-xl bg-primary/10 border border-primary/20 flex items-center">
                     <Truck className="w-5 h-5 text-primary mr-3" />
@@ -241,17 +341,25 @@ export default function CitizenDashboard() {
                   </button>
                 </div>
                 <div className="glass rounded-2xl border border-border overflow-hidden shadow-sm">
-                  {mockComplaints.map(cmp => (
+                  {isLoadingData ? (
+                    <div className="p-8 text-center text-muted-foreground">Loading complaints...</div>
+                  ) : myComplaints.length === 0 ? (
+                    <div className="p-8 text-center flex flex-col items-center">
+                      <CheckCircle2 className="w-12 h-12 text-emerald-500/50 mb-3" />
+                      <p className="font-bold text-lg text-foreground">No complaints filed yet</p>
+                      <p className="text-sm text-muted-foreground">If you see any issues, feel free to report them.</p>
+                    </div>
+                  ) : myComplaints.map(cmp => (
                     <div key={cmp.id} className="p-5 border-b border-border last:border-0 hover:bg-muted/30 transition-colors flex flex-col sm:flex-row justify-between sm:items-center gap-4">
                       <div>
                         <div className="flex items-center gap-2 mb-1">
                           <span className="font-bold text-lg">{cmp.type}</span>
-                          <span className="text-xs text-muted-foreground px-2 py-0.5 rounded-md bg-muted border border-border">{cmp.id}</span>
+                          <span className="text-xs text-muted-foreground px-2 py-0.5 rounded-md bg-muted border border-border">#{cmp.id.split('-')[0]}</span>
                         </div>
-                        <p className="text-sm text-muted-foreground">Reported on: {cmp.date}</p>
+                        <p className="text-sm text-muted-foreground">Reported on: {dayjs(cmp.createdAt).format('DD MMM YYYY, hh:mm A')}</p>
                       </div>
                       <div className="flex items-center gap-3">
-                        <span className={`px-3 py-1 rounded-full text-xs font-bold ${cmp.status === 'Resolved' ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' : 'bg-yellow-500/10 text-yellow-600 border border-yellow-500/20'}`}>
+                        <span className={`px-3 py-1 rounded-full text-xs font-bold ${cmp.status === 'RESOLVED' ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' : 'bg-yellow-500/10 text-yellow-600 border border-yellow-500/20'}`}>
                           {cmp.status}
                         </span>
                       </div>
@@ -312,19 +420,27 @@ export default function CitizenDashboard() {
 
                 <h3 className="text-xl font-bold mb-4">Points Ledger</h3>
                 <div className="glass rounded-2xl border border-border overflow-hidden shadow-sm">
-                  {mockLedger.map(tx => (
+                  {isLoadingData ? (
+                    <div className="p-8 text-center text-muted-foreground">Loading transactions...</div>
+                  ) : ledger.length === 0 ? (
+                    <div className="p-8 text-center flex flex-col items-center">
+                      <Award className="w-12 h-12 text-muted-foreground/30 mb-3" />
+                      <p className="font-bold text-lg text-foreground">No transactions yet</p>
+                      <p className="text-sm text-muted-foreground">Start segregating waste to earn points!</p>
+                    </div>
+                  ) : ledger.map((tx: any) => (
                     <div key={tx.id} className="p-5 border-b border-border last:border-0 flex items-center justify-between hover:bg-muted/30 transition-colors">
                       <div className="flex items-center gap-4">
-                        <div className={`p-2 rounded-full ${tx.type === 'reward' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'}`}>
-                          {tx.type === 'reward' ? <CheckCircle2 className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
+                        <div className={`p-2 rounded-full ${tx.points >= 0 ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'}`}>
+                          {tx.points >= 0 ? <CheckCircle2 className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
                         </div>
                         <div>
                           <p className="font-bold">{tx.action}</p>
-                          <p className="text-xs text-muted-foreground mt-0.5">{tx.date}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">{dayjs(tx.createdAt).format('DD MMM YYYY, hh:mm A')}</p>
                         </div>
                       </div>
-                      <div className={`font-black text-lg ${tx.type === 'reward' ? 'text-emerald-500' : 'text-red-500'}`}>
-                        {tx.points}
+                      <div className={`font-black text-lg ${tx.points >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+                        {tx.points > 0 ? '+' : ''}{tx.points}
                       </div>
                     </div>
                   ))}

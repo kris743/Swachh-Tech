@@ -97,6 +97,20 @@ export class ComplaintsService {
     };
   }
 
+  async findMyComplaints(userId: string) {
+    const profile = await this.prisma.citizenProfile.findUnique({
+      where: { userId }
+    });
+
+    if (!profile) throw new NotFoundException('Citizen profile not found');
+
+    return this.prisma.complaint.findMany({
+      where: { citizenId: profile.id },
+      orderBy: { createdAt: 'desc' },
+      include: { media: true }
+    });
+  }
+
   async findById(id: string) {
     const complaint = await this.prisma.complaint.findUnique({
       where: { id },

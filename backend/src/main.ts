@@ -70,6 +70,11 @@ async function bootstrap() {
   // Global prefix
   app.setGlobalPrefix('api');
 
+  // Increase payload limit for base64 image uploads
+  const express = require('express');
+  app.use(express.json({ limit: '10mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
   // Validation
   app.useGlobalPipes(
     new ValidationPipe({
