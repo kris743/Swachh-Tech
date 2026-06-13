@@ -36,47 +36,112 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
     // Lazy sync: if the user authenticated via Supabase but doesn't exist in Prisma yet, create them.
     if (!user && email) {
-      user = await this.prisma.user.create({
-        data: {
-          id: supabaseUserId,
-          email: email,
-          passwordHash: '', // Not used with Supabase auth
-          firstName: payload.user_metadata?.first_name || 'New',
-          lastName: payload.user_metadata?.last_name || 'User',
-          role: payload.user_metadata?.role || 'CITIZEN',
-          isActive: true,
-          isVerified: true,
-        },
+      // Check if user was pre-created by the owner/admin
+      const existingUserByEmail = await this.prisma.user.findUnique({
+        where: { email },
       });
 
-      // Also create citizen profile by default if they are citizen
-      if (user.role === 'CITIZEN') {
-        const household = await this.prisma.household.create({
-          data: {
-            address: 'Demo Address',
-            ward: 'WARD-1',
-            city: 'Demo City',
-            state: 'Demo State',
-            pincode: '000000',
-            qrCode: {
-              create: {
-                code: user.id
-              }
-            }
-          }
+      if (existingUserByEmail) {
+        // Link the pre-created record to the actual Supabase UID using raw SQL
+        // to bypass Prisma Client's restriction on updating primary key fields.
+        const firstName = payload.user_metadata?.first_name || existingUserByEmail.firstName || 'New';
+        const lastName = payload.user_metadata?.last_name || existingUserByEmail.lastName || 'User';
+
+        await this.prisma.$executeRaw`
+          UPDATE "User"
+          SET "id" = ${supabaseUserId}, "firstName" = ${firstName}, "lastName" = ${lastName}
+          WHERE "email" = ${email}
+        `;
+
+        user = await this.prisma.user.findUnique({
+          where: { id: supabaseUserId },
         });
-        
-        await this.prisma.citizenProfile.create({
+      } else {
+        user = await this.prisma.user.create({
           data: {
-            userId: user.id,
-            householdId: household.id,
-            address: '',
-            ward: '',
-            city: '',
-            state: '',
-            pincode: '',
+            id: supabaseUserId,
+            email: email,
+            passwordHash: '', // Not used with Supabase auth
+            firstName: payload.user_metadata?.first_name || 'New',
+            lastName: payload.user_metadata?.last_name || 'User',
+            role: payload.user_metadata?.role || 'CITIZEN',
+            isActive: true,
+            isVerified: true,
           },
         });
+
+        // Also create appropriate profile based on role
+        if (user.role === 'CITIZEN') {
+          const household = await this.prisma.household.create({
+            data: {
+              address: 'Demo Address',
+              ward: 'WARD-1',
+              city: 'Demo City',
+              state: 'Demo State',
+              pincode: '000000',
+              qrCode: {
+                create: {
+                  code: user.id
+                }
+              }
+            }
+          });
+          
+          await this.prisma.citizenProfile.create({
+            data: {
+              userId: user.id,
+              householdId: household.id,
+              address: 'Demo Address',
+              ward: 'WARD-1',
+              city: 'Demo City',
+              state: 'Demo State',
+              pincode: '000000',
+            },
+          });
+        } else if (user.role === 'WORKER') {
+          await this.prisma.workerProfile.create({
+            data: {
+              userId: user.id,
+              employeeId: `EMP-${user.id.substring(0, 8).toUpperCase()}`,
+              assignedWard: 'WARD-1',
+              shift: 'MORNING',
+              isAvailable: true,
+              totalCollections: 0,
+              rating: 5.0,
+              rewardPoints: 0,
+            }
+          });
+        } else if (user.role === 'DRIVER') {
+          await this.prisma.driverProfile.create({
+            data: {
+              userId: user.id,
+              licenseNumber: `LIC-${user.id.substring(0, 8).toUpperCase()}`,
+              isAvailable: true,
+              totalTrips: 0,
+            }
+          });
+        } else if (user.role === 'GREEN_CHAMPION') {
+          await this.prisma.greenChampionProfile.create({
+            data: {
+              userId: user.id,
+              assignedArea: 'WARD-1',
+              verificationCount: 0,
+              reportCount: 0,
+              rating: 5.0,
+            }
+          });
+        } else if (user.role === 'RECYCLER') {
+          await this.prisma.recyclerProfile.create({
+            data: {
+              userId: user.id,
+              businessName: `${user.firstName}'s Recycling`,
+              businessAddress: 'Demo Address',
+              materialsAccepted: 'PLASTIC, PAPER, METAL',
+              totalPickups: 0,
+              revenue: 0.0,
+            }
+          });
+        }
       }
     } else if (!user) {
       throw new UnauthorizedException('User is inactive or not found');

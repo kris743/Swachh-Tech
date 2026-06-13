@@ -63,14 +63,19 @@ export class JwtAuthGuard {
       });
 
       if (existingUserByEmail) {
-        // Link the pre-created record to the actual Supabase UID
-        dbUser = await this.prisma.user.update({
-          where: { email: user.email },
-          data: {
-            id: user.id,
-            firstName: user.user_metadata?.first_name || existingUserByEmail.firstName || 'New',
-            lastName: user.user_metadata?.last_name || existingUserByEmail.lastName || 'User',
-          },
+        // Link the pre-created record to the actual Supabase UID using raw SQL
+        // to bypass Prisma Client's restriction on updating primary key fields.
+        const firstName = user.user_metadata?.first_name || existingUserByEmail.firstName || 'New';
+        const lastName = user.user_metadata?.last_name || existingUserByEmail.lastName || 'User';
+        
+        await this.prisma.$executeRaw`
+          UPDATE "User"
+          SET "id" = ${user.id}, "firstName" = ${firstName}, "lastName" = ${lastName}
+          WHERE "email" = ${user.email}
+        `;
+
+        dbUser = await this.prisma.user.findUnique({
+          where: { id: user.id },
           include: {
             citizenProfile: true,
             workerProfile: true,
@@ -87,7 +92,7 @@ export class JwtAuthGuard {
             passwordHash: '',
             firstName: user.user_metadata?.first_name || 'New',
             lastName: user.user_metadata?.last_name || 'User',
-            role: 'CITIZEN', // Always default new signups to CITIZEN for admin-controlled roles
+            role: user.user_metadata?.role || 'CITIZEN', // Synchronize role from Supabase metadata
             isActive: true,
             isVerified: true,
           },

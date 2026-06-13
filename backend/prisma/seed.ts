@@ -1,4 +1,5 @@
-import { PrismaClient, UserRole, ShiftType, ComplaintType, ComplaintStatus, WasteType, CollectionStatus, TruckStatus, RouteStatus, RewardLevel, NotificationType, MediaType } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
+import { UserRole, ShiftType, ComplaintType, ComplaintStatus, WasteType, CollectionStatus, TruckStatus, RouteStatus, RewardLevel, NotificationType, MediaType } from '../src/common/prisma-enums';
 import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
@@ -50,6 +51,9 @@ async function main() {
           pincode: '560034',
         }
       }
+    },
+    include: {
+      citizenProfile: true,
     },
   });
   
@@ -131,6 +135,9 @@ async function main() {
           assignedTruckId: truck.id,
         }
       }
+    },
+    include: {
+      driverProfile: true,
     },
   });
   console.log('Driver & Truck created.');
